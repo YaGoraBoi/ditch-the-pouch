@@ -1,1 +1,1 @@
-web: gunicorn snus_bot:app
+web: gunicorn ditch_the_snus:app
