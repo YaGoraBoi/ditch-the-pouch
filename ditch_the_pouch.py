@@ -3,8 +3,9 @@ import requests
 import json
 import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
+import os
 
-ACCESS_TOKEN = "EAARE3nZCWIxQBO6o60aBLZCSilVDx6XtyV3ZCxE8jntOz0WAQ5YAwEXAZC02G0YcAgtMLuWgYfdRoPIGz1qgTM9al2oBJtOGTYLkDWEhXAsISHrfsp3Kj6LOJR8rrBCkXoRsaKwYas9Lvth8kj9Bb2RrQQ4fYX36ilvza0BFzctzf6mO8CVgZAsEjAeZA3aWrNwZAKGduSVdP1xHQ3fY2zGUMLpBBZBzwbKbOQjP"
+ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 PHONE_NUMBER_ID = "627034663828010"
 RECIPIENT_PHONE = "447946560381"
 
