@@ -100,8 +100,8 @@ def webhook():
             message = changes["messages"][0]
 
             # Handle button replies
-            if message.get("type") == "button":
-                button_id = message["button"]["payload"]
+            if message.get("type") == "interactive" and message.get("interactive", {}).get("type") == "button_reply":
+                button_id = message["interactive"]["button_reply"]["id"]
 
                 if button_id == "snus_taken":
                     user_data["current_day_snus"] += 1
