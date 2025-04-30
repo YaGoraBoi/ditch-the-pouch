@@ -1,18 +1,15 @@
 from flask import Flask, request
 import requests
 import json
-import datetime
 import os
 from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
 
-# Load sensitive info from environment variables
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 PHONE_NUMBER_ID = "627034663828010"
-RECIPIENT_PHONE = "447946560381"  # e.g., "447911123456"
+RECIPIENT_PHONE = "447946560381"
 
-# Simple in-memory store
 user_data = {
     "current_day_snus": 0,
     "yesterday_total": None,
@@ -21,6 +18,7 @@ user_data = {
     "min_limit": 3,
     "target_mg": 3,
     "current_mg": None,
+    "initial_mg": None,
     "failed": False
 }
 
@@ -39,6 +37,114 @@ def send_whatsapp_message(message):
     response = requests.post(url, headers=headers, json=data)
     print("Sent:", message)
     return response.json()
+
+def send_mg_list():
+    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "messaging_product": "whatsapp",
+        "to": RECIPIENT_PHONE,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {
+                "text": "Welcome! Please select the strength (mg) of your current snus:"
+            },
+            "action": {
+                "button": "Choose mg",
+                "sections": [
+                    {
+                        "title": "Snus Strength",
+                        "rows": [
+                            {"id": "mg_50", "title": "50mg"},
+                            {"id": "mg_40", "title": "40mg"},
+                            {"id": "mg_30", "title": "30mg"},
+                            {"id": "mg_20", "title": "20mg"},
+                            {"id": "mg_10", "title": "10mg"},
+                            {"id": "mg_5",  "title": "5mg"},
+                            {"id": "mg_3",  "title": "3mg"}
+                        ]
+                    }
+                ]
+            }
+        }
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    print("Sent mg list:", response.status_code)
+
+@app.route('/webhook', methods=['GET'])
+def verify():
+    VERIFY_TOKEN = "snusquit123"
+    if request.args.get("hub.mode") == "subscribe" and request.args.get("hub.verify_token") == VERIFY_TOKEN:
+        if user_data["current_mg"] is None:
+            send_mg_list()
+        return request.args.get("hub.challenge"), 200
+    return "Verification failed", 403
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.get_json()
+    print("Incoming:", json.dumps(data, indent=2))
+
+    try:
+        changes = data["entry"][0]["changes"][0]["value"]
+
+        if "messages" in changes:
+            message = changes["messages"][0]
+
+            # Reset trigger
+            if message.get("type") == "text":
+                text = message["text"]["body"].strip().lower()
+                if text == "reset me":
+                    user_data.update({
+                        "current_day_snus": 0,
+                        "yesterday_total": None,
+                        "limit": None,
+                        "snus_mg": [],
+                        "current_mg": None,
+                        "initial_mg": None,
+                        "failed": False
+                    })
+                    send_whatsapp_message("User data reset. Re-sending mg selector.")
+                    send_mg_list()
+                    return "ok", 200
+
+            # Handle mg list reply
+            if message.get("type") == "interactive" and message.get("interactive", {}).get("type") == "list_reply":
+                selection = message["interactive"]["list_reply"]["id"]
+                mg = int(selection.replace("mg_", ""))
+                user_data["current_mg"] = mg
+                user_data["initial_mg"] = mg
+                send_whatsapp_message(
+                    f"Got it! Your starting snus strength is {mg}mg. "
+                    f"Please press the button when you take a snus."
+                )
+                send_button_message()
+                return "ok", 200
+
+            # Handle buttons
+            if message.get("type") == "interactive" and message.get("interactive", {}).get("type") == "button_reply":
+                button_id = message["interactive"]["button_reply"]["id"]
+
+                if button_id == "snus_taken":
+                    user_data["current_day_snus"] += 1
+                    send_whatsapp_message(
+                        f"You logged a snus at {user_data['current_mg']}mg. "
+                        f"You've taken {user_data['current_day_snus']} today."
+                    )
+                elif button_id == "snus_failed":
+                    user_data["failed"] = True
+                    send_whatsapp_message("You pressed 'I failed'. No worries — try again tomorrow!")
+
+    except Exception as e:
+        print("Error handling webhook:", e)
+
+    return "ok", 200
 
 def send_button_message():
     url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
@@ -76,59 +182,7 @@ def send_button_message():
         }
     }
     response = requests.post(url, headers=headers, json=data)
-    print("Sent interactive message:", response.status_code)
-
-@app.route('/webhook', methods=['GET'])
-def verify():
-    VERIFY_TOKEN = "snusquit123"
-    if request.args.get("hub.mode") == "subscribe" and request.args.get("hub.verify_token") == VERIFY_TOKEN:
-        # Send button message as part of verification
-        send_button_message()
-        return request.args.get("hub.challenge"), 200
-    return "Verification failed", 403
-
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    data = request.get_json()
-    print("Incoming:", json.dumps(data, indent=2))
-
-    try:
-        changes = data["entry"][0]["changes"][0]["value"]
-
-        if "messages" in changes:
-            message = changes["messages"][0]
-
-            # Handle button replies
-            if message.get("type") == "interactive" and message.get("interactive", {}).get("type") == "button_reply":
-                button_id = message["interactive"]["button_reply"]["id"]
-
-                if button_id == "snus_taken":
-                    user_data["current_day_snus"] += 1
-                    send_whatsapp_message(f"You logged a snus. You've taken {user_data['current_day_snus']} today.")
-                elif button_id == "snus_failed":
-                    user_data["failed"] = True
-                    send_whatsapp_message("You pressed 'I failed'. No worries — try again tomorrow!")
-
-
-            # Handle plain text messages
-            elif message.get("type") == "text":
-                text = message["text"]["body"]
-                try:
-                    mg = int(text.strip())
-                    user_data["current_day_snus"] += 1
-                    user_data["snus_mg"].append(mg)
-                    user_data["current_mg"] = mg
-                    send_whatsapp_message(f"Logged {mg}mg. You've taken {user_data['current_day_snus']} snus today.")
-                except ValueError:
-                    send_whatsapp_message("Please reply with a number like '50', or use the button.")
-        else:
-            print("Received non-message event (status update, etc.)")
-
-    except Exception as e:
-        print("Error handling webhook:", e)
-
-    return "ok", 200
+    print("Sent interactive button:", response.status_code)
 
 def midnight_reset():
     user_data["yesterday_total"] = user_data["current_day_snus"]
@@ -153,12 +207,8 @@ def midnight_reset():
         )
         send_button_message()
 
-# Midnight reset
 scheduler = BackgroundScheduler()
 scheduler.add_job(midnight_reset, 'cron', hour=0, minute=0)
 scheduler.start()
 
-# Run app
-if __name__ == '__main__':
-    send_button_message()  # For initial test — remove this later if needed
-    app.run(host="0.0.0.0", port=10000)
+# (No __main__ block since we're using gunicorn on Render)
