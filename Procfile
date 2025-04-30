@@ -1,1 +1,1 @@
-web: gunicorn ditch_the_snus:app
+web: gunicorn ditch_the_pouch:app
