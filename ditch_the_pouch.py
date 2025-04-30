@@ -82,8 +82,11 @@ def send_button_message():
 def verify():
     VERIFY_TOKEN = "snusquit123"
     if request.args.get("hub.mode") == "subscribe" and request.args.get("hub.verify_token") == VERIFY_TOKEN:
+        # Send button message as part of verification
+        send_button_message()
         return request.args.get("hub.challenge"), 200
     return "Verification failed", 403
+
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
