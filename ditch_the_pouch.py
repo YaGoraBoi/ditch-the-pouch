@@ -110,6 +110,7 @@ def webhook():
                     user_data["failed"] = True
                     send_whatsapp_message("You pressed 'I failed'. No worries — try again tomorrow!")
 
+
             # Handle plain text messages
             elif message.get("type") == "text":
                 text = message["text"]["body"]
