@@ -4,6 +4,8 @@ import requests
 import json
 from apscheduler.schedulers.background import BackgroundScheduler
 from tinydb import TinyDB, Query
+from tinydb.storages import MemoryStorage
+
 
 app = Flask(__name__)
 
@@ -12,7 +14,7 @@ PHONE_NUMBER_ID = "627034663828010"
 RECIPIENT_PHONE = "447946560381"
 
 # Setup TinyDB (in-memory fallback for ephemeral Render)
-db = TinyDB(storage=None)  # Use in-memory only
+db = TinyDB(storage=MemoryStorage)
 user_table = db.table("users")
 User = Query()
 
