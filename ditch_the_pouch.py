@@ -91,30 +91,36 @@ def webhook():
     print("Incoming:", json.dumps(data, indent=2))
 
     try:
-        message = data['entry'][0]['changes'][0]['value']['messages'][0]
+        changes = data["entry"][0]["changes"][0]["value"]
 
-        # Handle button press
-        if message.get("type") == "button":
-            button_id = message["button"]["payload"]
+        if "messages" in changes:
+            message = changes["messages"][0]
 
-            if button_id == "snus_taken":
-                user_data["current_day_snus"] += 1
-                send_whatsapp_message(f"You logged a snus. You've taken {user_data['current_day_snus']} today.")
-            elif button_id == "snus_failed":
-                user_data["failed"] = True
-                send_whatsapp_message("You pressed 'I failed'. No worries — try again tomorrow!")
+            # Handle button replies
+            if message.get("type") == "button":
+                button_id = message["button"]["payload"]
 
-        # Handle regular text (mg input)
-        elif message.get("type") == "text":
-            text = message["text"]["body"]
-            try:
-                mg = int(text.strip())
-                user_data["current_day_snus"] += 1
-                user_data["snus_mg"].append(mg)
-                user_data["current_mg"] = mg
-                send_whatsapp_message(f"Logged {mg}mg. You've taken {user_data['current_day_snus']} snus today.")
-            except ValueError:
-                send_whatsapp_message("Please reply with a number like '50', or use the button.")
+                if button_id == "snus_taken":
+                    user_data["current_day_snus"] += 1
+                    send_whatsapp_message(f"You logged a snus. You've taken {user_data['current_day_snus']} today.")
+                elif button_id == "snus_failed":
+                    user_data["failed"] = True
+                    send_whatsapp_message("You pressed 'I failed'. No worries — try again tomorrow!")
+
+            # Handle plain text messages
+            elif message.get("type") == "text":
+                text = message["text"]["body"]
+                try:
+                    mg = int(text.strip())
+                    user_data["current_day_snus"] += 1
+                    user_data["snus_mg"].append(mg)
+                    user_data["current_mg"] = mg
+                    send_whatsapp_message(f"Logged {mg}mg. You've taken {user_data['current_day_snus']} snus today.")
+                except ValueError:
+                    send_whatsapp_message("Please reply with a number like '50', or use the button.")
+        else:
+            print("Received non-message event (status update, etc.)")
+
     except Exception as e:
         print("Error handling webhook:", e)
 
