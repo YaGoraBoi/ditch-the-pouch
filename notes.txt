@@ -1,0 +1,8 @@
+| Keyword          | Action                                                                 |
+|------------------|------------------------------------------------------------------------|
+| `reset me`       | Wipes all user data (already exists)                                   |
+| `midnight`       | Forces the `midnight_reset()` logic immediately                        |
+| `three snus`     | Forces daily limit to 3 at current mg                                  |
+| `weaker unlock`  | Triggers the weaker snus unlock list (if mg > 3)                       |
+| `graduate me`    | Sets mg = 3 and zero_snus_days = 3 → triggers success message          |
+| `status`         | Shows debug state (mg, count, failed, limit, zero_snus_days, etc)      |

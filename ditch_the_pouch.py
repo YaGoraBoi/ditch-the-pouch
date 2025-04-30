@@ -134,9 +134,10 @@ def webhook():
             message = changes["messages"][0]
             user_data = get_user_data()
 
-            # Reset
             if message.get("type") == "text":
                 text = message["text"]["body"].strip().lower()
+
+                # 🧼 Full reset
                 if text == "reset me":
                     user_data = default_data.copy()
                     send_whatsapp_message("User data reset. Re-sending mg selector.")
@@ -144,19 +145,63 @@ def webhook():
                     save_user_data(user_data)
                     return "ok", 200
 
-            # MG selected
+                # 🕛 Simulate midnight
+                if text == "midnight":
+                    send_whatsapp_message("⏳ Simulating midnight reset...")
+                    midnight_reset()
+                    return "ok", 200
+
+                # 🔻 Force 3 snus limit
+                if text == "three snus":
+                    user_data["limit"] = 3
+                    send_whatsapp_message("🔻 Daily limit set to 3 snus.")
+                    save_user_data(user_data)
+                    return "ok", 200
+
+                # 🧪 Trigger weaker unlock manually
+                if text == "weaker unlock":
+                    if user_data["current_mg"] and user_data["current_mg"] > 3:
+                        send_whatsapp_message("🔓 Triggering weaker snus list manually...")
+                        send_mg_list(unlock=True)
+                    else:
+                        send_whatsapp_message("❌ Already on 3mg or no mg set.")
+                    return "ok", 200
+
+                # 🎓 Force graduation state
+                if text == "graduate me":
+                    user_data["current_mg"] = 3
+                    user_data["current_day_snus"] = 0
+                    user_data["zero_snus_days"] = 3
+                    midnight_reset()
+                    return "ok", 200
+
+                # 🧾 Print current state
+                if text == "status":
+                    msg = (
+                        f"📊 Current Status:\n"
+                        f"- MG: {user_data['current_mg']}mg\n"
+                        f"- Snus today: {user_data['current_day_snus']}\n"
+                        f"- Limit: {user_data['limit']}\n"
+                        f"- Failed today: {user_data['failed']}\n"
+                        f"- Zero-snuse days: {user_data['zero_snus_days']}\n"
+                        f"- Graduated: {'✅' if user_data.get('graduated') else '❌'}"
+                    )
+                    send_whatsapp_message(msg)
+                    return "ok", 200
+
+            # MG selection
             if message.get("type") == "interactive" and message["interactive"]["type"] == "list_reply":
                 mg = int(message["interactive"]["list_reply"]["id"].replace("mg_", ""))
                 user_data["current_mg"] = mg
                 user_data["initial_mg"] = mg
                 send_whatsapp_message(
-                    f"Got it! Starting snus strength is {mg}mg.\nPress a button to log use."
+                    f"Got it! Your starting snus strength is {mg}mg.\nPress a button to log usage."
                 )
                 send_button_message()
                 save_user_data(user_data)
                 return "ok", 200
 
-            # Button actions
+            # Button presses
             if message.get("type") == "interactive" and message["interactive"]["type"] == "button_reply":
                 button_id = message["interactive"]["button_reply"]["id"]
 
@@ -170,7 +215,7 @@ def webhook():
 
                 elif button_id == "snus_failed":
                     user_data["failed"] = True
-                    send_whatsapp_message("You pressed 'I failed'. No worries — tomorrow is a new day.")
+                    send_whatsapp_message("You pressed 'I failed'. Try again tomorrow!")
                     send_button_message()
 
                 save_user_data(user_data)
