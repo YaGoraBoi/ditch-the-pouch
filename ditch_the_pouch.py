@@ -137,9 +137,12 @@ def webhook():
                         f"You logged a snus at {user_data['current_mg']}mg. "
                         f"You've taken {user_data['current_day_snus']} today."
                     )
+                    send_button_message()
+
                 elif button_id == "snus_failed":
                     user_data["failed"] = True
                     send_whatsapp_message("You pressed 'I failed'. No worries — try again tomorrow!")
+                    send_button_message()
 
     except Exception as e:
         print("Error handling webhook:", e)
@@ -210,5 +213,3 @@ def midnight_reset():
 scheduler = BackgroundScheduler()
 scheduler.add_job(midnight_reset, 'cron', hour=0, minute=0)
 scheduler.start()
-
-# (No __main__ block since we're using gunicorn on Render)
