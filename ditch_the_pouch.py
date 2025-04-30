@@ -1,8 +1,9 @@
 from flask import Flask, request
+import os
 import requests
 import json
-import os
 from apscheduler.schedulers.background import BackgroundScheduler
+from tinydb import TinyDB, Query
 
 app = Flask(__name__)
 
@@ -10,10 +11,13 @@ ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 PHONE_NUMBER_ID = "627034663828010"
 RECIPIENT_PHONE = "447946560381"
 
-DATA_FILE = "user_data.json"
+# Setup TinyDB (in-memory fallback for ephemeral Render)
+db = TinyDB(storage=None)  # Use in-memory only
+user_table = db.table("users")
+User = Query()
 
-# Default in-memory user state
-user_data = {
+# Initial default data
+default_data = {
     "current_day_snus": 0,
     "yesterday_total": None,
     "limit": None,
@@ -25,19 +29,15 @@ user_data = {
     "failed": False
 }
 
-def save_user_data():
-    with open(DATA_FILE, "w") as f:
-        json.dump(user_data, f)
-    print("User data saved.")
+def get_user_data():
+    result = user_table.get(User.phone == RECIPIENT_PHONE)
+    return result["data"] if result else default_data.copy()
 
-def load_user_data():
-    global user_data
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            user_data = json.load(f)
-        print("Loaded user data from file.")
-    else:
-        print("No saved data found. Starting fresh.")
+def save_user_data(data):
+    user_table.upsert({"phone": RECIPIENT_PHONE, "data": data}, User.phone == RECIPIENT_PHONE)
+    print("User data saved to TinyDB.")
+
+user_data = get_user_data()
 
 def send_whatsapp_message(message):
     url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
@@ -133,13 +133,14 @@ def send_button_message():
 def verify():
     VERIFY_TOKEN = "snusquit123"
     if request.args.get("hub.mode") == "subscribe" and request.args.get("hub.verify_token") == VERIFY_TOKEN:
-        if user_data["current_mg"] is None:
+        if get_user_data()["current_mg"] is None:
             send_mg_list()
         return request.args.get("hub.challenge"), 200
     return "Verification failed", 403
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    global user_data
     data = request.get_json()
     print("Incoming:", json.dumps(data, indent=2))
 
@@ -148,23 +149,16 @@ def webhook():
 
         if "messages" in changes:
             message = changes["messages"][0]
+            user_data = get_user_data()
 
             # Reset
             if message.get("type") == "text":
                 text = message["text"]["body"].strip().lower()
                 if text == "reset me":
-                    user_data.update({
-                        "current_day_snus": 0,
-                        "yesterday_total": None,
-                        "limit": None,
-                        "snus_mg": [],
-                        "current_mg": None,
-                        "initial_mg": None,
-                        "failed": False
-                    })
+                    user_data = default_data.copy()
                     send_whatsapp_message("User data reset. Re-sending mg selector.")
                     send_mg_list()
-                    save_user_data()
+                    save_user_data(user_data)
                     return "ok", 200
 
             # MG list reply
@@ -176,7 +170,7 @@ def webhook():
                     f"Got it! Your starting snus strength is {mg}mg.\nPress the button below to log use."
                 )
                 send_button_message()
-                save_user_data()
+                save_user_data(user_data)
                 return "ok", 200
 
             # Button press
@@ -190,13 +184,13 @@ def webhook():
                         f"You've taken {user_data['current_day_snus']} today."
                     )
                     send_button_message()
-                    save_user_data()
+                    save_user_data(user_data)
 
                 elif button_id == "snus_failed":
                     user_data["failed"] = True
                     send_whatsapp_message("You pressed 'I failed'. No worries — tomorrow is a new day.")
                     send_button_message()
-                    save_user_data()
+                    save_user_data(user_data)
 
     except Exception as e:
         print("Error handling webhook:", e)
@@ -204,6 +198,9 @@ def webhook():
     return "ok", 200
 
 def midnight_reset():
+    global user_data
+    user_data = get_user_data()
+
     user_data["yesterday_total"] = user_data["current_day_snus"]
     if user_data["yesterday_total"] is not None:
         user_data["limit"] = max(user_data["yesterday_total"] - 1, user_data["min_limit"])
@@ -225,11 +222,10 @@ def midnight_reset():
         )
         send_button_message()
 
-    save_user_data()
+    save_user_data(user_data)
 
-# Init
-load_user_data()
-
+# Load + schedule
+user_data = get_user_data()
 scheduler = BackgroundScheduler()
 scheduler.add_job(midnight_reset, 'cron', hour=0, minute=0)
 scheduler.start()
