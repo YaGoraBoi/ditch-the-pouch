@@ -16,7 +16,6 @@ db = TinyDB(storage=MemoryStorage)
 user_table = db.table("users")
 User = Query()
 
-# Initial default data
 default_data = {
     "current_day_snus": 0,
     "yesterday_total": None,
@@ -65,21 +64,17 @@ def send_mg_list(unlock=False):
     else:
         mg_options = [{"id": f"mg_{mg}", "title": f"{mg}mg"} for mg in [50, 40, 30, 25, 20, 10, 5, 3]]
 
+    text = "Select your starting snus strength:" if not unlock else "You’ve unlocked weaker snus options!"
     data = {
         "messaging_product": "whatsapp",
         "to": RECIPIENT_PHONE,
         "type": "interactive",
         "interactive": {
             "type": "list",
-            "body": {
-                "text": "Select your starting snus strength:" if not unlock else "You’ve unlocked weaker snus options!"
-            },
+            "body": {"text": text},
             "action": {
                 "button": "Choose mg",
-                "sections": [{
-                    "title": "Snus Strength",
-                    "rows": mg_options
-                }]
+                "sections": [{"title": "Snus Strength", "rows": mg_options}]
             }
         }
     }
@@ -96,13 +91,10 @@ def send_button_message():
         "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {
-                "text": "Please press a button when you take a snus or need help."
-            },
+            "body": {"text": "Press to log a snus."},
             "action": {
                 "buttons": [
-                    {"type": "reply", "reply": {"id": "snus_taken", "title": "I took a snus"}},
-                    {"type": "reply", "reply": {"id": "snus_failed", "title": "I failed"}}
+                    {"type": "reply", "reply": {"id": "snus_taken", "title": "I took a snus"}}
                 ]
             }
         }
@@ -137,37 +129,28 @@ def webhook():
             if message.get("type") == "text":
                 text = message["text"]["body"].strip().lower()
 
-                # 🧼 Full reset
                 if text == "reset me":
                     user_data = default_data.copy()
-                    send_whatsapp_message("User data reset. Re-sending mg selector.")
+                    send_whatsapp_message("User data reset.")
                     send_mg_list()
                     save_user_data(user_data)
                     return "ok", 200
 
-                # 🕛 Simulate midnight
                 if text == "midnight":
                     send_whatsapp_message("⏳ Simulating midnight reset...")
                     midnight_reset()
                     return "ok", 200
 
-                # 🔻 Force 3 snus limit
                 if text == "three snus":
                     user_data["limit"] = 3
-                    send_whatsapp_message("🔻 Daily limit set to 3 snus.")
+                    send_whatsapp_message("Limit manually set to 3 snus.")
                     save_user_data(user_data)
                     return "ok", 200
 
-                # 🧪 Trigger weaker unlock manually
                 if text == "weaker unlock":
-                    if user_data["current_mg"] and user_data["current_mg"] > 3:
-                        send_whatsapp_message("🔓 Triggering weaker snus list manually...")
-                        send_mg_list(unlock=True)
-                    else:
-                        send_whatsapp_message("❌ Already on 3mg or no mg set.")
+                    send_mg_list(unlock=True)
                     return "ok", 200
 
-                # 🎓 Force graduation state
                 if text == "graduate me":
                     user_data["current_mg"] = 3
                     user_data["current_day_snus"] = 0
@@ -175,49 +158,46 @@ def webhook():
                     midnight_reset()
                     return "ok", 200
 
-                # 🧾 Print current state
                 if text == "status":
                     msg = (
-                        f"📊 Current Status:\n"
+                        f"📊 Status:\n"
                         f"- MG: {user_data['current_mg']}mg\n"
-                        f"- Snus today: {user_data['current_day_snus']}\n"
-                        f"- Limit: {user_data['limit']}\n"
-                        f"- Failed today: {user_data['failed']}\n"
+                        f"- Limit: {user_data['limit']} snus\n"
+                        f"- Taken today: {user_data['current_day_snus']}\n"
+                        f"- Remaining: {user_data['limit'] - user_data['current_day_snus'] if user_data['limit'] else 'N/A'}\n"
                         f"- Zero-snuse days: {user_data['zero_snus_days']}\n"
-                        f"- Graduated: {'✅' if user_data.get('graduated') else '❌'}"
+                        f"- Graduated: {'✅' if user_data.get('graduated') else '❌'}\n"
+                        f"- Failed today: {'✅' if user_data['failed'] else '❌'}"
                     )
                     send_whatsapp_message(msg)
                     return "ok", 200
 
-            # MG selection
             if message.get("type") == "interactive" and message["interactive"]["type"] == "list_reply":
                 mg = int(message["interactive"]["list_reply"]["id"].replace("mg_", ""))
+                old_mg = user_data.get("current_mg")
                 user_data["current_mg"] = mg
-                user_data["initial_mg"] = mg
-                send_whatsapp_message(
-                    f"Got it! Your starting snus strength is {mg}mg.\nPress a button to log usage."
-                )
+                if old_mg and old_mg != mg:
+                    send_whatsapp_message(f"New snus strength set to {mg}mg.")
+                else:
+                    send_whatsapp_message(f"Got it! Starting snus strength is {mg}mg.")
                 send_button_message()
                 save_user_data(user_data)
                 return "ok", 200
 
-            # Button presses
             if message.get("type") == "interactive" and message["interactive"]["type"] == "button_reply":
-                button_id = message["interactive"]["button_reply"]["id"]
-
-                if button_id == "snus_taken":
-                    user_data["current_day_snus"] += 1
-                    send_whatsapp_message(
-                        f"Logged snus at {user_data['current_mg']}mg. "
-                        f"You’ve taken {user_data['current_day_snus']} today."
-                    )
-                    send_button_message()
-
-                elif button_id == "snus_failed":
+                if user_data["limit"] is not None and user_data["current_day_snus"] >= user_data["limit"]:
+                    send_whatsapp_message("⚠️ You’ve gone over your daily limit. Try again tomorrow!")
                     user_data["failed"] = True
-                    send_whatsapp_message("You pressed 'I failed'. Try again tomorrow!")
-                    send_button_message()
+                    save_user_data(user_data)
+                    return "ok", 200
 
+                user_data["current_day_snus"] += 1
+                send_whatsapp_message(
+                    f"Logged snus at {user_data['current_mg']}mg. "
+                    f"You’ve taken {user_data['current_day_snus']} today "
+                    f"(Limit: {user_data['limit']})."
+                )
+                send_button_message()
                 save_user_data(user_data)
 
     except Exception as e:
@@ -229,28 +209,14 @@ def midnight_reset():
     global user_data
     user_data = get_user_data()
 
-    # Daily summary
-    if user_data["yesterday_total"] is not None and not user_data.get("graduated", False):
-        send_whatsapp_message(
-            f"📊 Yesterday: {user_data['yesterday_total']} snus at {user_data['current_mg']}mg.\n"
-            f"Today’s limit: {max(user_data['yesterday_total'] - 1, user_data['min_limit'])}."
-        )
-
-    # Graduation condition
     if user_data["current_mg"] == 3 and user_data["current_day_snus"] == 0:
         user_data["zero_snus_days"] += 1
         if user_data["zero_snus_days"] >= 3:
-            send_whatsapp_message("🎉 You’ve gone 3 days with 0 snus at 3mg — you’ve quit! Amazing work! 💪")
+            send_whatsapp_message("🎉 You’ve gone 3 days with 0 snus at 3mg. You’ve officially quit! 🏆")
             user_data["graduated"] = True
     else:
         user_data["zero_snus_days"] = 0
 
-    # Weaker snus unlock
-    if user_data["limit"] == 3 and user_data["current_mg"] > 3:
-        send_whatsapp_message("🚨 You’ve hit 3/day. You can now choose a weaker snus level.")
-        send_mg_list(unlock=True)
-
-    # Update for new day
     user_data["yesterday_total"] = user_data["current_day_snus"]
     user_data["limit"] = max(user_data["yesterday_total"] - 1, user_data["min_limit"])
     user_data["current_day_snus"] = 0
@@ -258,11 +224,22 @@ def midnight_reset():
     user_data["failed"] = False
 
     if not user_data.get("graduated", False):
+        send_whatsapp_message(
+            f"🌙 Midnight Reset:\n"
+            f"Yesterday: {user_data['yesterday_total']} snus at {user_data['current_mg']}mg.\n"
+            f"Today’s limit: {user_data['limit']}.\n"
+            f"You’ve taken 0 so far."
+        )
+
+        if user_data["limit"] == 3 and user_data["current_mg"] > 3:
+            send_whatsapp_message("🚨 You’ve hit 3/day. You can now choose a weaker snus level.")
+            send_mg_list(unlock=True)
+
         send_button_message()
 
     save_user_data(user_data)
 
-# Load and schedule
+# Boot logic
 user_data = get_user_data()
 scheduler = BackgroundScheduler()
 scheduler.add_job(midnight_reset, 'cron', hour=0, minute=0)
