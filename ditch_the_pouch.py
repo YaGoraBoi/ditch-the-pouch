@@ -209,6 +209,7 @@ def midnight_reset():
     global user_data
     user_data = get_user_data()
 
+    # Graduation check
     if user_data["current_mg"] == 3 and user_data["current_day_snus"] == 0:
         user_data["zero_snus_days"] += 1
         if user_data["zero_snus_days"] >= 3:
@@ -217,29 +218,38 @@ def midnight_reset():
     else:
         user_data["zero_snus_days"] = 0
 
+    # Daily summary
+    send_whatsapp_message(
+        f"🌙 Midnight Reset:\n"
+        f"Yesterday: {user_data['current_day_snus']} snus at {user_data['current_mg']}mg."
+    )
+
     user_data["yesterday_total"] = user_data["current_day_snus"]
-    user_data["limit"] = max(user_data["yesterday_total"] - 1, user_data["min_limit"])
+
+    if not user_data["failed"]:
+        user_data["limit"] = max(user_data["yesterday_total"] - 1, user_data["min_limit"])
+    else:
+        send_whatsapp_message("⏪ You exceeded your limit yesterday. Today's limit stays the same.")
+
     user_data["current_day_snus"] = 0
     user_data["snus_mg"] = []
     user_data["failed"] = False
 
+    # Trigger weaker snus if user had low usage
+    if user_data["yesterday_total"] <= 3 and user_data["current_mg"] > 3:
+        send_whatsapp_message("👏 You only took 3 or fewer snus yesterday. Want to try a weaker strength?")
+        send_mg_list(unlock=True)
+
     if not user_data.get("graduated", False):
         send_whatsapp_message(
-            f"🌙 Midnight Reset:\n"
-            f"Yesterday: {user_data['yesterday_total']} snus at {user_data['current_mg']}mg.\n"
-            f"Today’s limit: {user_data['limit']}.\n"
+            f"Today’s limit: {user_data['limit']} snus.\n"
             f"You’ve taken 0 so far."
         )
-
-        if user_data["limit"] == 3 and user_data["current_mg"] > 3:
-            send_whatsapp_message("🚨 You’ve hit 3/day. You can now choose a weaker snus level.")
-            send_mg_list(unlock=True)
-
         send_button_message()
 
     save_user_data(user_data)
 
-# Boot logic
+# Boot setup
 user_data = get_user_data()
 scheduler = BackgroundScheduler()
 scheduler.add_job(midnight_reset, 'cron', hour=0, minute=0)
